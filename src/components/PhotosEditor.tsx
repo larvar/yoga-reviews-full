@@ -238,7 +238,7 @@ export default function PhotosEditor({ instructorId }: { instructorId: string })
 
     const [moved] = arr.splice(fi, 1);
     arr.splice(ti, 0, moved);
-    const reindexed = compact(arr);
+    const reindexed = [...arr];
     setRows(reindexed);
     await saveOrder(reindexed);
   };
