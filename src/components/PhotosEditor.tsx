@@ -205,7 +205,7 @@ export default function PhotosEditor({ instructorId }: { instructorId: string })
     }
     setUndoPhoto({ id });
     setTimeout(() => setUndoPhoto(null), 5000);
-    await saveOrder(compact(prev.filter((r) => r.id !== id)));
+    await saveOrder(prev.filter((r) => r.id !== id));
   }
 
   async function undoDelete() {
