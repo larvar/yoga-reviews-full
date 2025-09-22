@@ -1,0 +1,14 @@
+/* File: src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Simple defaults so you can SEE Tailwind is active */
+:root { color-scheme: light; }
+html, body { height: 100%; }
+
+/* globals.css */
+button,
+.btn {
+  @apply px-5 py-3 text-base rounded-lg;
+}
