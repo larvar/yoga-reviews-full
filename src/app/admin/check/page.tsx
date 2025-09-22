@@ -1,104 +1,145 @@
-// src/app/admin/check/page.tsx
+// FILE: src/app/admin/check/page.tsx
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import Link from "next/link";
 
-type State =
-  | { loading: true }
-  | {
-      loading: false;
-      userId: string | null;
-      email: string | null;
-      isAdmin: boolean | null;
-      error?: string | null;
-    };
+type State = {
+  loading: boolean;
+  error?: string;
+
+  // present when logged in
+  userId?: string;
+  email?: string | null;
+
+  // present after admin check
+  isAdmin?: boolean;
+};
 
 export default function AdminCheckPage() {
   const [state, setState] = useState<State>({ loading: true });
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    async function run() {
       try {
-        const { data: userData, error: userErr } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
+        // 1) get user
+        const { data: userData, error: authErr } = await supabase.auth.getUser();
+        if (authErr) throw authErr;
 
-        const user = userData.user ?? null;
-        const uid = user?.id ?? null;
-        const email = user?.email ?? null;
-
-        if (!uid) {
-          setState({ loading: false, userId: null, email: null, isAdmin: null });
+        const user = userData.user;
+        if (!user) {
+          if (!cancelled) setState({ loading: false, error: "You are not signed in." });
           return;
         }
 
-        const { data: isAdmin, error: rpcErr } = await supabase.rpc("is_admin");
-        if (rpcErr) throw rpcErr;
+        const uid = user.id;
+        const email = user.email ?? null;
 
-        setState({
-          loading: false,
-          userId: uid,
-          email,
-          isAdmin: Boolean(isAdmin),
-        });
+        // 2) check admin status
+        // This assumes a table `auth_admins(user_id uuid primary key)` exists.
+        const { data: row, error: qErr } = await supabase
+          .from("auth_admins")
+          .select("user_id")
+          .eq("user_id", uid)
+          .maybeSingle();
+
+        if (qErr && qErr.code !== "PGRST116") {
+          // PGRST116 = no rows; not an error for maybeSingle
+          throw qErr;
+        }
+
+        const isAdmin = !!row;
+
+        if (!cancelled) {
+          setState({ loading: false, userId: uid, email, isAdmin });
+        }
       } catch (e: any) {
-        setState({
-          loading: false,
-          userId: null,
-          email: null,
-          isAdmin: null,
-          error: e?.message ?? "Unknown error",
-        });
+        if (!cancelled) {
+          setState({
+            loading: false,
+            error: e?.message || String(e),
+          });
+        }
       }
-    })();
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // UI
+
   if (state.loading) {
-    return <div className="p-6">Checking admin status…</div>;
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Admin Check</h1>
+        <p className="mt-2 text-sm text-gray-500">Checking your admin status…</p>
+      </div>
+    );
   }
 
   if (state.error) {
     return (
-      <div className="p-6 space-y-2">
+      <div className="p-6 space-y-3">
         <h1 className="text-xl font-semibold">Admin Check</h1>
-        <p className="text-red-600">Error: {state.error}</p>
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{state.error}</div>
+        <div className="text-sm">
+          <Link href="/login" className="underline">
+            Log in
+          </Link>
+        </div>
       </div>
     );
   }
 
-  if (!state.userId) {
-    return (
-      <div className="p-6 space-y-4">
-        <h1 className="text-xl font-semibold">Admin Check</h1>
-        <p>You’re not logged in.</p>
-        <Link href="/login" className="underline">Go to login</Link>
-      </div>
-    );
-  }
+  const email = state.email ?? "(unknown email)";
+  const userId = state.userId ?? "(unknown id)";
+  const isAdmin = !!state.isAdmin;
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-bold">Admin Check</h1>
-      <div className="space-y-1">
-        <div><span className="font-semibold">Email:</span> {state.email ?? "—"}</div>
-        <div><span className="font-semibold">User ID:</span> {state.userId}</div>
+      <h1 className="text-xl font-semibold">Admin Check</h1>
+
+      <div className="rounded border bg-white p-4">
+        <div className="text-sm">Email: {email}</div>
+        <div className="text-sm">User ID: {userId}</div>
+        <div className="mt-2 text-base">
+          {isAdmin ? (
+            <span className="inline-flex items-center gap-2 text-emerald-700">
+              You’re an admin <span>✅</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 text-rose-700">
+              You are not an admin <span>⛔</span>
+            </span>
+          )}
+        </div>
       </div>
 
-      {state.isAdmin ? (
-        <div className="space-y-3">
-          <div className="text-green-700 font-semibold">You’re an admin ✅</div>
-          <div className="flex gap-3">
-            <Link href="/admin/instructors" className="underline">Go to Instructors Admin</Link>
-            <Link href="/admin/reviews" className="underline">Go to Reviews Admin</Link>
-          </div>
+      {isAdmin ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/admin/instructors"
+            className="inline-block rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Go to Instructors Admin
+          </Link>
+          <Link
+            href="/admin/reviews"
+            className="inline-block rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Go to Reviews Admin
+          </Link>
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="text-amber-700 font-semibold">You’re logged in, but not an admin.</div>
-          <p>
-            If this is unexpected, confirm that your UID matches the row in <code>auth_admins</code>.
-          </p>
+        <div className="text-sm text-gray-600">
+          If you think this is a mistake, ask an existing admin to add your <code>user_id</code> to{" "}
+          <code>auth_admins</code>.
         </div>
       )}
     </div>
