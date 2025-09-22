@@ -1,150 +1,179 @@
 // FILE: src/components/Lightbox.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-export type LightboxImage = { url: string; alt?: string | null };
+type Img = { url: string; caption?: string };
 
 export default function Lightbox({
   images,
-  index,
+  startIndex = 0,
   onClose,
-  onChange,
 }: {
-  images: LightboxImage[];
-  index: number;
+  images: Img[];
+  startIndex?: number;
   onClose: () => void;
-  onChange: (nextIndex: number) => void;
 }) {
+  const [index, setIndex] = useState(startIndex);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const startRef = useRef<{ x: number; y: number } | null>(null);
+
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
   const touchRef = useRef<{ d: number; zoom: number } | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  const current = images[index];
 
-  const thumbStrip = useMemo(() => images.slice(0, 12), [images]);
+  // ---- helpers (make structural, not DOM Touch-specific)
+  function dist(
+    a: { clientX: number; clientY: number },
+    b: { clientX: number; clientY: number }
+  ) {
+    const dx = a.clientX - b.clientX;
+    const dy = a.clientY - b.clientY;
+    return Math.hypot(dx, dy);
+  }
 
+  function clamp(v: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  // ---- keyboard nav
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") onChange((index + 1) % images.length);
-      if (e.key === "ArrowLeft") onChange((index - 1 + images.length) % images.length);
-      if (e.key === "+") setZoom(z => Math.min(4, z + 0.25));
-      if (e.key === "-") setZoom(z => Math.max(1, z - 0.25));
-      if (e.key === "0") { setZoom(1); setOffset({ x: 0, y: 0 }); }
+      if (e.key === "ArrowRight") next();
+      if (e.key === "ArrowLeft") prev();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, images.length, onClose, onChange]);
+  }, []);
 
-  function onBackdropClick(e: React.MouseEvent) {
-    if (e.target === overlayRef.current) onClose();
+  function prev() {
+    setIndex((i) => (i - 1 + images.length) % images.length);
+    resetView();
+  }
+  function next() {
+    setIndex((i) => (i + 1) % images.length);
+    resetView();
+  }
+  function resetView() {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    dragRef.current = null;
+    touchRef.current = null;
   }
 
-  function onWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    setZoom(z => {
-      const next = e.deltaY < 0 ? Math.min(4, z + 0.1) : Math.max(1, z - 0.1);
-      return Math.round(next * 100) / 100;
-    });
-  }
-
+  // ---- mouse drag to pan (when zoomed)
   function onMouseDown(e: React.MouseEvent) {
-    if (zoom === 1) return;
-    startRef.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+    if (zoom <= 1) return;
+    dragRef.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
   }
   function onMouseMove(e: React.MouseEvent) {
-    if (!startRef.current) return;
-    setOffset({ x: e.clientX - startRef.current.x, y: e.clientY - startRef.current.y });
+    if (!dragRef.current) return;
+    setOffset({
+      x: e.clientX - dragRef.current.x,
+      y: e.clientY - dragRef.current.y,
+    });
   }
-  function onMouseUp() { startRef.current = null; }
+  function onMouseUp() {
+    dragRef.current = null;
+  }
 
-  function dist(a: Touch, b: Touch) {
-    const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
-    return Math.hypot(dx, dy);
+  // ---- wheel to zoom
+  function onWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    const z = clamp(zoom + (e.deltaY > 0 ? -0.1 : 0.1), 1, 4);
+    setZoom(z);
   }
+
+  // ---- touch pinch zoom
   function onTouchStart(e: React.TouchEvent) {
     if (e.touches.length === 2) {
-      const d = dist(e.touches[0], e.touches[1]);
+      const d = dist(e.touches[0], e.touches[1]); // React.Touch has clientX/Y
       touchRef.current = { d, zoom };
     }
   }
   function onTouchMove(e: React.TouchEvent) {
     if (e.touches.length === 2 && touchRef.current) {
-      e.preventDefault();
       const nd = dist(e.touches[0], e.touches[1]);
-      const base = touchRef.current;
-      const factor = nd / base.d;
-      setZoom(Math.max(1, Math.min(4, Math.round((base.zoom * factor) * 100) / 100)));
+      const factor = nd / touchRef.current.d;
+      setZoom(clamp(touchRef.current.zoom * factor, 1, 4));
     }
   }
-  function onTouchEnd() { touchRef.current = null; }
+  function onTouchEnd() {
+    touchRef.current = null;
+  }
 
-  if (!current) return null;
+  const img = images[index];
 
   return (
     <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[1000] bg-black/90 flex flex-col"
-      onClick={onBackdropClick}
-      aria-modal
-      role="dialog"
+      className="fixed inset-0 z-[80] bg-black/90 text-white"
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
     >
       {/* Top bar */}
-      <div className="flex items-center justify-between px-3 py-2 text-white/90">
-        <div className="flex items-center gap-2 text-sm">
-          <button onClick={() => onChange((index - 1 + images.length) % images.length)} className="border border-white/30 rounded px-2 py-1">←</button>
-          <button onClick={() => onChange((index + 1) % images.length)} className="border border-white/30 rounded px-2 py-1">→</button>
-          <span className="ml-2">{index + 1} / {images.length}</span>
+      <div className="absolute left-0 right-0 top-0 flex items-center justify-between px-4 py-3">
+        <div className="text-sm opacity-80">
+          {index + 1} / {images.length}
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <button onClick={() => setZoom(z => Math.max(1, z - 0.25))} className="border border-white/30 rounded px-2 py-1">-</button>
-          <span>{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(z => Math.min(4, z + 0.25))} className="border border-white/30 rounded px-2 py-1">+</button>
-          <button onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} className="border border-white/30 rounded px-2 py-1">Reset</button>
-          <button onClick={onClose} className="border border-white/30 rounded px-3 py-1">✕</button>
+        <div className="flex items-center gap-2">
+          <button
+            className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+            onClick={resetView}
+          >
+            Reset
+          </button>
+          <button
+            className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
       </div>
 
-      {/* Image area */}
+      {/* Image */}
       <div
-        className="flex-1 flex items-center justify-center overflow-hidden"
+        className="absolute inset-0 flex items-center justify-center select-none"
         onWheel={onWheel}
         onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={current.url}
-          alt={current.alt || ""}
-          className="object-contain select-none"
-          draggable={false}
+          src={img.url}
+          alt={img.caption ?? ""}
+          className="max-h-[80vh] max-w-[90vw] cursor-grab"
           style={{
             transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-            maxHeight: "85vh",
-            maxWidth: "90vw",
+            transformOrigin: "center center",
           }}
+          draggable={false}
         />
       </div>
 
-      {/* Thumbs */}
-      <div className="flex gap-2 overflow-auto p-2 bg-black/80">
-        {thumbStrip.map((t, i) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={i}
-            src={t.url}
-            alt={t.alt || ""}
-            onClick={() => onChange(i)}
-            className={`h-14 w-auto object-cover rounded cursor-pointer ${i===index ? "ring-2 ring-white" : ""}`}
-          />
-        ))}
+      {/* Caption + nav */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-4 px-4 py-3">
+        <button
+          className="rounded bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
+          onClick={prev}
+          aria-label="Previous"
+        >
+          ← Prev
+        </button>
+        <div className="min-h-[1.5rem] max-w-[70%] truncate text-center text-sm opacity-90">
+          {img.caption ?? ""}
+        </div>
+        <button
+          className="rounded bg-white/10 px-3 py-2 text-sm hover:bg-white/20"
+          onClick={next}
+          aria-label="Next"
+        >
+          Next →
+        </button>
       </div>
     </div>
   );
