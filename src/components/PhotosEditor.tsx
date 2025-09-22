@@ -453,7 +453,6 @@ async function optimizeImage(file: File): Promise<{
 }
 
 async function loadBitmap(file: File): Promise<ImageBitmap> {
-  // @ts-expect-error: option might not exist in older DOM lib
   try { return await createImageBitmap(file, { imageOrientation: "from-image" }); }
   catch {
     const url = URL.createObjectURL(file);
