@@ -1,12 +1,11 @@
 // FILE: src/app/instructors/[slug]/page.tsx
-// Gallery now de-dupes the cover, includes captions, and frames heads nicer.
-
 "use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import ReviewList from "@/components/ReviewList";
+import ReviewForm from "@/components/ReviewForm";
 
 type Inst = {
   id: string;
@@ -18,7 +17,9 @@ type Inst = {
 
 type GPhoto = { url: string; caption: string | null };
 
-export default function InstructorProfile({ params }: { params: { slug: string } }) {
+export default function InstructorPage({ params }: { params: { slug: string } }) {
+  const { slug } = params;
+
   const [inst, setInst] = useState<Inst | null>(null);
   const [photos, setPhotos] = useState<GPhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +33,7 @@ export default function InstructorProfile({ params }: { params: { slug: string }
       const { data: irow, error: ierr } = await supabase
         .from("instructors")
         .select("id, slug, display_name, bio, photo_url")
-        .eq("slug", params.slug)
+        .eq("slug", slug)
         .eq("approved", true)
         .eq("visible", true)
         .is("deleted_at", null)
@@ -78,7 +79,7 @@ export default function InstructorProfile({ params }: { params: { slug: string }
       setPhotos(list);
       setLoading(false);
     })();
-  }, [params.slug]);
+  }, [slug]);
 
   if (loading) return <main className="max-w-4xl mx-auto p-6">Loading…</main>;
   if (err) return <main className="max-w-4xl mx-auto p-6 text-red-600">Error: {err}</main>;
@@ -91,13 +92,15 @@ export default function InstructorProfile({ params }: { params: { slug: string }
       : inst.display_name || "Instructor";
 
   return (
-    <main className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-2">{displayName}</h1>
-      {inst.bio && <p className="text-gray-700 mb-4 whitespace-pre-wrap">{inst.bio}</p>}
+    <main className="max-w-4xl mx-auto p-6 space-y-8">
+      <header>
+        <h1 className="text-3xl font-bold mb-2">{displayName}</h1>
+        {inst.bio && <p className="text-gray-700 mb-4 whitespace-pre-wrap">{inst.bio}</p>}
+      </header>
 
       {/* Gallery with captions (better face framing) */}
       {photos.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {photos.map((p, idx) => (
             <figure key={idx} className="bg-white rounded">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -117,7 +120,7 @@ export default function InstructorProfile({ params }: { params: { slug: string }
 
       <div className="mt-4 flex items-center gap-3">
         <Link
-          href={`/instructors/${params.slug}/review`}
+          href={`/instructors/${slug}/review`}
           className="inline-flex items-center gap-2 rounded-md border px-5 py-3 text-base hover:bg-gray-50"
         >
           <span aria-hidden>🧘</span>
@@ -131,7 +134,12 @@ export default function InstructorProfile({ params }: { params: { slug: string }
         </Link>
       </div>
 
-      <section className="mt-8">
+      {/* Embedded Review Form (writes instructor_id by looking up slug inside) */}
+      <section>
+        <ReviewForm slug={slug} />
+      </section>
+
+      <section>
         <h2 className="text-lg font-semibold mb-2">Reviews</h2>
         <ReviewList instructorId={inst.id} fallbackImageUrl={cover} />
       </section>
