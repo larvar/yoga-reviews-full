@@ -4,11 +4,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import AddReview from "@/components/AddReview"; // 👈 add the modal
+import AddReview from "@/components/AddReview";
 
 type InstructorCard = {
   id: string;
-  name: string | null;       // display_name alias
+  name: string | null; // display_name alias
   slug: string | null;
   photo_url: string | null;
 };
@@ -28,11 +28,9 @@ export default function HomePage() {
   const [instErr, setInstErr] = useState<string | null>(null);
   const [revErr, setRevErr] = useState<string | null>(null);
 
-  // 👇 controls the modal
   const [showReview, setShowReview] = useState(false);
 
   useEffect(() => {
-    // Featured instructors
     supabase
       .from("instructors")
       .select("id, name:display_name, slug, photo_url")
@@ -44,7 +42,6 @@ export default function HomePage() {
         else setInstructors(data ?? []);
       });
 
-    // Recent reviews (approved & not hidden)
     supabase
       .from("reviews")
       .select("id, created_at, title, comment, rating, image_url, hidden, status")
@@ -69,7 +66,7 @@ export default function HomePage() {
           overflow: "hidden",
           backgroundImage: 'url("/hero.jpg")',
           backgroundSize: "cover",
-          backgroundPosition: "center center",
+          backgroundPosition: "center 30%", // a touch higher so heads stay in frame
           backgroundRepeat: "no-repeat",
         }}
       >
@@ -88,10 +85,32 @@ export default function HomePage() {
             padding: "0 16px",
           }}
         >
-          <h1 style={{ fontSize: 40, fontWeight: 700, margin: 0 }}>Find & review yoga instructors</h1>
-          <p style={{ marginTop: 12, maxWidth: 720, fontSize: 18, opacity: 0.9 }}>
-            Browse published profiles, then leave a review to help others.
+          {/* 🔥 Big white banner text */}
+          <h1
+            style={{
+              fontSize: 64,            // big banner
+              fontWeight: 800,
+              margin: 0,
+              letterSpacing: 0.5,
+              textShadow: "0 2px 20px rgba(0,0,0,0.45)",
+            }}
+          >
+            LA Fitness Yoga Reviews
+          </h1>
+
+          {/* Tagline */}
+          <p
+            style={{
+              marginTop: 12,
+              maxWidth: 820,
+              fontSize: 20,
+              opacity: 0.95,
+              textShadow: "0 1px 12px rgba(0,0,0,0.35)",
+            }}
+          >
+            Find and review yoga instructors across LA Fitness studios.
           </p>
+
           <div style={{ marginTop: 20, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <Link
               href="/instructors"
@@ -108,7 +127,7 @@ export default function HomePage() {
               Browse Instructors
             </Link>
             <button
-              onClick={() => setShowReview(true)} // 👈 open modal here
+              onClick={() => setShowReview(true)}
               style={{
                 background: "transparent",
                 color: "white",
@@ -275,7 +294,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 👇 Mount the modal (no instructorId passed) */}
+      {/* Modal (no instructorId) */}
       <AddReview open={showReview} onClose={() => setShowReview(false)} />
     </main>
   );

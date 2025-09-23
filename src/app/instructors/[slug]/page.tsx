@@ -1,5 +1,5 @@
 // FILE: src/app/instructors/[slug]/page.tsx
-// (Only the gallery section changed: now fetches caption + renders it.)
+// Gallery now de-dupes the cover, includes captions, and frames heads nicer.
 
 "use client";
 
@@ -59,9 +59,22 @@ export default function InstructorProfile({ params }: { params: { slug: string }
         return;
       }
 
+      // Build list and de-dupe if cover also appears in instructor_photos
+      const seen = new Set<string>();
       const list: GPhoto[] = [];
-      if (irow.photo_url) list.push({ url: irow.photo_url, caption: null });
-      (prows || []).forEach((p: any) => list.push({ url: p.url, caption: p.caption || null }));
+
+      if (irow.photo_url) {
+        seen.add(irow.photo_url);
+        list.push({ url: irow.photo_url, caption: null });
+      }
+
+      (prows || []).forEach((p: any) => {
+        if (!seen.has(p.url)) {
+          seen.add(p.url);
+          list.push({ url: p.url, caption: p.caption || null });
+        }
+      });
+
       setPhotos(list);
       setLoading(false);
     })();
@@ -82,7 +95,7 @@ export default function InstructorProfile({ params }: { params: { slug: string }
       <h1 className="text-3xl font-bold mb-2">{displayName}</h1>
       {inst.bio && <p className="text-gray-700 mb-4 whitespace-pre-wrap">{inst.bio}</p>}
 
-      {/* Gallery with captions */}
+      {/* Gallery with captions (better face framing) */}
       {photos.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           {photos.map((p, idx) => (
@@ -92,6 +105,7 @@ export default function InstructorProfile({ params }: { params: { slug: string }
                 src={p.url}
                 alt={p.caption || `Photo ${idx + 1}`}
                 className="w-full h-48 object-cover rounded border"
+                style={{ objectPosition: "center top" }}
               />
               {p.caption && (
                 <figcaption className="text-xs text-gray-600 mt-1">{p.caption}</figcaption>
@@ -106,7 +120,6 @@ export default function InstructorProfile({ params }: { params: { slug: string }
           href={`/instructors/${params.slug}/review`}
           className="inline-flex items-center gap-2 rounded-md border px-5 py-3 text-base hover:bg-gray-50"
         >
-          {/* little yogi icon (emoji keeps it simple) */}
           <span aria-hidden>🧘</span>
           <span>Leave a review</span>
         </Link>

@@ -1,157 +1,89 @@
 // FILE: src/components/AddReview.tsx
-// Review modal with LA Fitness (SoCal) location dropdown + safe RPC insert.
-
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { LAF_LOCATIONS } from "@/lib/lafLocations";
 
-type InstructorOpt = { id: string; label: string };
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-// Simple curated list of LA Fitness locations in Southern California
-const LAF_LOCATIONS = [
-  "Unknown / General",
-  "Downtown Los Angeles",
-  "Hollywood",
-  "Westwood",
-  "Santa Monica",
-  "Culver City",
-  "Pasadena",
-  "Glendale",
-  "Burbank",
-  "Long Beach - Downtown",
-  "Torrance",
-  "Huntington Beach",
-  "Newport Beach",
-  "Costa Mesa",
-  "Irvine - Spectrum",
-  "Irvine - Northpark",
-  "Irvine - Crossroads",
-  "Irvine - Alicia",
-  "Irvine - Michaelson",
-  "Irvine - Lake Forest",
-  "Irvine - Irvine East",
-  "Irvine - Jamboree",
-  "Irvine - Fountain Valley",
-  "Anaheim",
-  "Fullerton",
-  "Garden Grove",
-  "Santa Ana",
-  "Mission Viejo",
-  "Laguna Niguel",
-  "San Clemente",
-  "Oceanside",
-  "Carlsbad",
-  "Encinitas",
-  "San Diego - Mission Valley",
-  "San Diego - UTC",
-];
+type Instructor = { id: string; name: string | null; slug: string | null };
 
 export default function AddReview({
   open,
   onClose,
+  instructorId, // optional preselect when launched from instructor page
 }: {
   open: boolean;
   onClose: () => void;
+  instructorId?: string | null;
 }) {
-  const [instructors, setInstructors] = useState<InstructorOpt[]>([]);
-  const [instId, setInstId] = useState<string>("unknown"); // "unknown" or UUID (or stray label—RPC handles)
-  const [location, setLocation] = useState<string>("Unknown / General");
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [selectedInstructor, setSelectedInstructor] = useState<string>(""); // "" -> Unknown/Other
   const [name, setName] = useState("");
-  const [rating, setRating] = useState(5);
+  const [rating, setRating] = useState<number>(5);
   const [title, setTitle] = useState("");
   const [comment, setComment] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
+  const [location, setLocation] = useState<string>("Unknown / Other");
+
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Load instructors
   useEffect(() => {
-    if (!open) return;
+    let cancelled = false;
     (async () => {
       const { data, error } = await supabase
         .from("instructors")
-        .select("id, display_name, slug")
+        .select("id,name,slug")
         .eq("approved", true)
         .eq("visible", true)
-        .is("deleted_at", null)
-        .order("display_name", { ascending: true });
-      if (error) {
-        setErr(error.message);
-        setInstructors([]);
-        return;
+        .order("name", { ascending: true });
+
+      if (!cancelled) {
+        if (error) setErr(error.message);
+        else setInstructors(data || []);
       }
-      const opts: InstructorOpt[] = (data ?? []).map((r: any) => ({
-        id: r.id,
-        label: r.display_name || r.slug || "Instructor",
-      }));
-      setInstructors(opts);
     })();
-  }, [open]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const canSubmit = useMemo(
-    () => !busy && rating >= 1 && rating <= 5 && comment.trim().length > 0,
-    [busy, rating, comment]
-  );
+  // Respect preselected instructor when opened from instructor page
+  useEffect(() => {
+    setSelectedInstructor(instructorId ?? "");
+  }, [instructorId]);
 
-  async function submit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setMsg(null);
-    if (!canSubmit) return;
-
-    // prepare UUID vs text for RPC
-    const isUnknown = instId === "unknown";
-    let instructor_uuid: string | null = null;
-    let instructor_text: string | null = null;
-    if (isUnknown) {
-      instructor_text = "Unknown / Other";
-    } else {
-      instructor_text = instId;
-      instructor_uuid = UUID_RE.test(instId) ? instId : null;
-    }
-
     setBusy(true);
     try {
-      // optional single photo upload
-      let image_url: string | null = null;
-      if (file) {
-        const safe = file.name.replace(/\s+/g, "-");
-        const path = `reviews/${instructor_uuid ?? "unknown"}/${Date.now()}-${safe}`;
-        const { error: upErr } = await supabase.storage
-          .from("instructor-photos")
-          .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
-        if (upErr) throw upErr;
-        const { data: urlData } = supabase.storage.from("instructor-photos").getPublicUrl(path);
-        image_url = urlData.publicUrl;
-      }
+      const payload = {
+        instructor_id: selectedInstructor || null, // empty string -> NULL
+        name: name || null,
+        rating,
+        title: title || null,
+        comment: comment || null,
+        image_url: null,
+        location: location || null,
+        status: "pending" as const,
+      };
 
-      // call safe RPC (now supports p_location)
-      const { error } = await supabase.rpc("create_review_safe", {
-        p_instructor_text: instructor_text,
-        p_instructor_id: instructor_uuid,
-        p_name: name.trim() || null,
-        p_rating: rating,
-        p_title: title.trim() || null,
-        p_comment: comment.trim(),
-        p_image_url: image_url,
-        p_status: "pending",
-        p_location: location || null,
-      });
+      const { error } = await supabase.from("reviews").insert(payload);
       if (error) throw error;
 
-      setMsg("Thanks! Your review was submitted.");
-      setName(""); setTitle(""); setComment(""); setFile(null);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-      setLocation("Unknown / General");
-
-      setTimeout(() => { onClose(); setMsg(null); }, 800);
+      setMsg("Thanks! Your review was submitted and is pending approval.");
+      setName("");
+      setRating(5);
+      setTitle("");
+      setComment("");
+      setLocation("Unknown / Other");
+      // keep selectedInstructor as-is
     } catch (e: any) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -160,85 +92,135 @@ export default function AddReview({
   if (!open) return null;
 
   return (
-    <div aria-modal role="dialog" className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 w-[min(640px,92vw)] rounded-2xl border bg-white p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Leave a review</h2>
-          <button onClick={onClose} className="rounded border px-2 py-1 text-sm hover:bg-gray-50">Close</button>
+    <div className="fixed inset-0 z-50 bg-black/40">
+      <div className="mx-auto mt-20 max-w-lg rounded-xl border bg-white p-4 shadow">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Leave a Review</h2>
+          <button
+            className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
 
-        {err && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{err}</div>}
-        {msg && <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
-
-        <form onSubmit={submit} className="space-y-3">
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium">Instructor</label>
-              <select className="mt-1 w-full rounded-md border px-3 py-2" value={instId} onChange={(e) => setInstId(e.target.value)}>
-                <option value="unknown">Unknown / Other</option>
-                {instructors.map((i) => (
-                  <option key={i.id} value={i.id}>{i.label}</option>
-                ))}
-              </select>
+        <form onSubmit={onSubmit} className="mt-3 space-y-3">
+          {/* Instructor */}
+          <label className="block">
+            <div className="text-sm mb-1">Instructor</div>
+            <select
+              value={selectedInstructor}
+              onChange={(e) => setSelectedInstructor(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            >
+              <option value="">Unknown / Other</option>
+              {instructors.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name || "(Unnamed instructor)"} {i.slug ? `— ${i.slug}` : ""}
+                </option>
+              ))}
+            </select>
+            <div className="mt-1 text-xs text-gray-500">
+              Not sure who taught? Keep “Unknown / Other.”
             </div>
+          </label>
 
-            <div>
-              <label className="block text-sm font-medium">LA Fitness Location</label>
-              <select className="mt-1 w-full rounded-md border px-3 py-2" value={location} onChange={(e) => setLocation(e.target.value)}>
-                {LAF_LOCATIONS.map((loc) => <option key={loc} value={loc}>{loc}</option>)}
-              </select>
+          {/* Location */}
+          <label className="block">
+            <div className="text-sm mb-1">Location</div>
+            <select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            >
+              {LAF_LOCATIONS.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+            <div className="mt-1 text-xs text-gray-500">
+              Choose the LA Fitness club where class was taken.
             </div>
-          </div>
+          </label>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium">Your name (optional)</label>
-              <input className="mt-1 w-full rounded-md border px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Alex" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium">Rating</label>
-              <select className="mt-1 w-full rounded-md border px-3 py-2" value={rating} onChange={(e) => setRating(parseInt(e.target.value, 10))}>
-                {[5,4,3,2,1].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Title (optional)</label>
-            <input className="mt-1 w-full rounded-md border px-3 py-2" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Great class!" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Comment</label>
-            <textarea className="mt-1 w-full rounded-md border px-3 py-2" rows={5} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="What did you like or not like?" required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium">Photo (optional)</label>
+          {/* Name (optional) */}
+          <label className="block">
+            <div className="text-sm mb-1">Your name (optional)</div>
             <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0] || null;
-                setFile(f);
-                if (previewUrl) URL.revokeObjectURL(previewUrl);
-                setPreviewUrl(f ? URL.createObjectURL(f) : null);
-              }}
-              className="mt-1"
+              className="w-full rounded border px-3 py-2"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Jane D."
             />
-            {previewUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={previewUrl} alt="Preview" className="mt-2 w-40 aspect-[4/3] object-cover rounded border" />
-            )}
-          </div>
+          </label>
 
-          <div className="flex items-center gap-2 pt-1">
-            <button type="submit" disabled={!canSubmit} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60">
-              {busy ? "Submitting…" : "Submit review"}
-            </button>
-            <button type="button" onClick={onClose} className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50">
+          {/* Rating */}
+          <label className="block">
+            <div className="text-sm mb-1">Rating</div>
+            <select
+              className="w-full rounded border px-3 py-2"
+              value={rating}
+              onChange={(e) => setRating(Number(e.target.value))}
+              required
+            >
+              {[5, 4, 3, 2, 1].map((r) => (
+                <option key={r} value={r}>
+                  {r} / 5
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Title */}
+          <label className="block">
+            <div className="text-sm mb-1">Title</div>
+            <input
+              className="w-full rounded border px-3 py-2"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Great class!"
+            />
+          </label>
+
+          {/* Comment */}
+          <label className="block">
+            <div className="text-sm mb-1">Comment</div>
+            <textarea
+              className="w-full rounded border px-3 py-2"
+              rows={4}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="What did you like? Any helpful context?"
+            />
+          </label>
+
+          {err && (
+            <div className="rounded border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
+              {err}
+            </div>
+          )}
+          {msg && (
+            <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
+              {msg}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+            >
               Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded bg-black px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {busy ? "Submitting…" : "Submit review"}
             </button>
           </div>
         </form>
