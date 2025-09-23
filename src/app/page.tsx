@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import AddReview from "@/components/AddReview"; // 👈 add the modal
 
 type InstructorCard = {
   id: string;
@@ -27,6 +28,9 @@ export default function HomePage() {
   const [instErr, setInstErr] = useState<string | null>(null);
   const [revErr, setRevErr] = useState<string | null>(null);
 
+  // 👇 controls the modal
+  const [showReview, setShowReview] = useState(false);
+
   useEffect(() => {
     // Featured instructors
     supabase
@@ -40,12 +44,12 @@ export default function HomePage() {
         else setInstructors(data ?? []);
       });
 
-    // Recent reviews (read directly from reviews with filters)
+    // Recent reviews (approved & not hidden)
     supabase
       .from("reviews")
       .select("id, created_at, title, comment, rating, image_url, hidden, status")
-      .is("hidden", false)                // not hidden
-      .eq("status", "approved")           // approved only
+      .or("hidden.is.null,hidden.eq.false")
+      .eq("status", "approved")
       .order("created_at", { ascending: false })
       .limit(8)
       .then(({ data, error }) => {
@@ -103,8 +107,8 @@ export default function HomePage() {
             >
               Browse Instructors
             </Link>
-            <Link
-              href="/instructors" // keep simple CTA
+            <button
+              onClick={() => setShowReview(true)} // 👈 open modal here
               style={{
                 background: "transparent",
                 color: "white",
@@ -113,11 +117,11 @@ export default function HomePage() {
                 border: "2px solid rgba(255,255,255,0.8)",
                 fontWeight: 600,
                 fontSize: 16,
-                textDecoration: "none",
+                cursor: "pointer",
               }}
             >
               Leave a Review
-            </Link>
+            </button>
           </div>
         </div>
       </section>
@@ -247,7 +251,7 @@ export default function HomePage() {
                   style={{
                     width: "100%",
                     height: 96,
-                    objectFit: isPlaceholder ? "contain" : "cover", // show full placeholder head
+                    objectFit: isPlaceholder ? "contain" : "cover",
                     objectPosition: "center",
                     background: isPlaceholder ? "#fff" : undefined,
                     padding: isPlaceholder ? 8 : 0,
@@ -270,6 +274,9 @@ export default function HomePage() {
           })}
         </div>
       </section>
+
+      {/* 👇 Mount the modal (no instructorId passed) */}
+      <AddReview open={showReview} onClose={() => setShowReview(false)} />
     </main>
   );
 }
