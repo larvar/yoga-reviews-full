@@ -1,35 +1,32 @@
 // FILE: src/app/instructors/[slug]/review/page.tsx
-// Creates a review for the *current instructor only*.
-// Sends ONLY instructor_id (UUID) — never a label — so no UUID cast errors.
-
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import Link from "next/link";
 
-type Inst = {
-  id: string;
-  slug: string | null;
-  display_name: string | null;
-};
+const LOCATIONS = [
+  "Unknown / Other",
+  "Irvine – Barranca",
+  "Irvine – Culver",
+  "Irvine – Spectrum",
+  "Irvine – Harvard",
+  "Tustin – The Marketplace",
+  "Costa Mesa – Harbor",
+  "Newport Beach – Westcliff",
+];
 
-export default function CreateInstructorReview({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const [inst, setInst] = useState<Inst | null>(null);
+export default function ReviewForInstructor({ params }: { params: { slug: string } }) {
+  const [instId, setInstId] = useState<string | null>(null);
+  const [instName, setInstName] = useState<string>("Instructor");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // form
-  const [name, setName] = useState("");
-  const [rating, setRating] = useState(5);
   const [title, setTitle] = useState("");
   const [comment, setComment] = useState("");
+  const [rating, setRating] = useState<number>(5);
+  const [location, setLocation] = useState(LOCATIONS[0]);
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -39,73 +36,65 @@ export default function CreateInstructorReview({
       setErr(null);
       const { data, error } = await supabase
         .from("instructors")
-        .select("id, slug, display_name")
+        .select("id, display_name")
         .eq("slug", params.slug)
         .eq("approved", true)
         .eq("visible", true)
-        .is("deleted_at", null)
         .maybeSingle();
-
       if (error || !data) {
         setErr(error?.message || "Instructor not found.");
-        setLoading(false);
-        return;
+      } else {
+        setInstId(data.id);
+        setInstName(data.display_name || "Instructor");
       }
-      setInst(data as Inst);
       setLoading(false);
     })();
   }, [params.slug]);
 
+  const canSubmit = useMemo(() => {
+    return instId && rating >= 1 && rating <= 5 && (title.trim().length > 0 || comment.trim().length > 0);
+  }, [instId, rating, title, comment]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!inst) return;
-    if (!comment.trim()) {
-      setErr("Please write a comment.");
-      return;
-    }
+    if (!instId) return;
     setErr(null);
     setMsg(null);
     setBusy(true);
-
     try {
-      // optional image upload
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) throw new Error("Please sign in to leave a review.");
+
       let image_url: string | null = null;
       if (file) {
         const safe = file.name.replace(/\s+/g, "-");
-        const path = `reviews/${inst.id}/${Date.now()}-${safe}`;
-        const { error: upErr } = await supabase
-          .storage
-          .from("instructor-photos")
-          .upload(path, file, {
-            upsert: false,
-            contentType: file.type || "image/jpeg",
-          });
+        const path = `reviews/${auth.user.id}/${Date.now()}-${safe}`;
+        const { error: upErr } = await supabase.storage
+          .from("review-images")
+          .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
         if (upErr) throw upErr;
-        const { data: urlData } = supabase
-          .storage
-          .from("instructor-photos")
-          .getPublicUrl(path);
-        image_url = urlData.publicUrl;
+        const { data: url } = supabase.storage.from("review-images").getPublicUrl(path);
+        image_url = url.publicUrl;
       }
 
-      // ✅ payload: ONLY UUIDs (or null) in uuid columns
       const payload: any = {
-        instructor_id: inst.id,        // <-- UUID from DB
-        name: name.trim() || null,
-        rating,
+        instructor_id: instId,
         title: title.trim() || null,
-        comment: comment.trim(),
+        comment: comment.trim() || null,
+        rating,
         image_url,
-        status: "pending",             // keep if you moderate
+        location, // remove if you don't have this column
       };
 
-      const { error } = await supabase.from("reviews").insert(payload);
-      if (error) throw error;
+      const { error: insErr } = await supabase.from("reviews").insert(payload);
+      if (insErr) throw insErr;
 
-      setMsg("Thanks! Your review was submitted for approval.");
-      setName(""); setTitle(""); setComment(""); setFile(null);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
+      setMsg("Thanks! Your review was submitted and is pending approval.");
+      setTitle("");
+      setComment("");
+      setRating(5);
+      setLocation(LOCATIONS[0]);
+      setFile(null);
     } catch (e: any) {
       setErr(e.message || String(e));
     } finally {
@@ -115,48 +104,40 @@ export default function CreateInstructorReview({
 
   if (loading) return <main className="max-w-3xl mx-auto p-6">Loading…</main>;
   if (err) return <main className="max-w-3xl mx-auto p-6 text-red-600">Error: {err}</main>;
-  if (!inst) return <main className="max-w-3xl mx-auto p-6">Not found.</main>;
+  if (!instId) return <main className="max-w-3xl mx-auto p-6">Not found.</main>;
 
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-2">Review {inst.display_name || "Instructor"}</h1>
-      <p className="text-sm text-gray-600 mb-6">
-        Submitting for: <code className="px-1 py-0.5 bg-gray-100 rounded">{inst.id}</code>
-        {/* ^ tiny debug so you can see we’re using a UUID */}
-      </p>
+    <main className="max-w-3xl mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">Review {instName}</h1>
+      <Link href={`/instructors/${params.slug}`} className="text-sm underline">
+        ← Back to profile
+      </Link>
 
-      {msg && <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
-      {err && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{err}</div>}
+      {msg && <div className="rounded border border-green-200 bg-green-50 p-2 text-green-700 text-sm">{msg}</div>}
+      {err && <div className="rounded border border-red-200 bg-red-50 p-2 text-red-700 text-sm">{err}</div>}
 
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium">Your name (optional)</label>
-            <input
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Alex"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Rating</label>
-            <select
-              className="mt-1 w-full rounded-md border px-3 py-2"
-              value={rating}
-              onChange={(e) => setRating(parseInt(e.target.value, 10))}
-            >
-              {[5,4,3,2,1].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium">Rating</label>
+          <select
+            value={rating}
+            onChange={(e) => setRating(parseInt(e.target.value, 10))}
+            className="rounded border px-2 py-1 text-sm"
+          >
+            {[5, 4, 3, 2, 1].map((n) => (
+              <option key={n} value={n}>
+                {n} {n === 1 ? "star" : "stars"}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
           <label className="block text-sm font-medium">Title (optional)</label>
           <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            className="mt-1 w-full rounded border px-3 py-2"
             placeholder="Great class!"
           />
         </div>
@@ -164,13 +145,27 @@ export default function CreateInstructorReview({
         <div>
           <label className="block text-sm font-medium">Comment</label>
           <textarea
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            rows={5}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="What did you like or not like?"
-            required
+            className="mt-1 w-full rounded border px-3 py-2"
+            rows={4}
+            placeholder="What did you like? Anything to improve?"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">Location (optional)</label>
+          <select
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="mt-1 w-full rounded border px-3 py-2"
+          >
+            {LOCATIONS.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -178,38 +173,28 @@ export default function CreateInstructorReview({
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => {
-              const f = e.target.files?.[0] || null;
-              setFile(f);
-              if (previewUrl) URL.revokeObjectURL(previewUrl);
-              setPreviewUrl(f ? URL.createObjectURL(f) : null);
-            }}
-            className="mt-1"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="mt-1 block"
           />
-          {previewUrl && (
+          {file && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={previewUrl}
-              alt="Preview"
-              className="mt-2 w-40 aspect-[4/3] object-cover rounded border"
+              alt="preview"
+              src={URL.createObjectURL(file)}
+              className="mt-2 h-28 w-28 rounded object-cover border"
+              style={{ objectPosition: "center top" }}
             />
           )}
         </div>
 
-        <div className="flex items-center gap-2 pt-1">
+        <div className="pt-2">
           <button
             type="submit"
-            disabled={busy || !comment.trim()}
-            className="rounded-md border px-5 py-3 text-base font-medium hover:bg-gray-50 disabled:opacity-60"
+            disabled={!canSubmit || busy}
+            className="rounded bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Submitting…" : "Submit review"}
+            {busy ? "Submitting…" : "Submit Review"}
           </button>
-          <Link
-            href={`/instructors/${params.slug}`}
-            className="rounded-md border px-5 py-3 text-base hover:bg-gray-50"
-          >
-            Back to profile
-          </Link>
         </div>
       </form>
     </main>

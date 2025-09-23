@@ -1,59 +1,52 @@
 // FILE: src/components/AddReview.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { LAF_LOCATIONS } from "@/lib/lafLocations";
 
-type Instructor = { id: string; name: string | null; slug: string | null };
-
-export default function AddReview({
-  open,
-  onClose,
-  instructorId, // optional preselect when launched from instructor page
-}: {
+type Props = {
   open: boolean;
   onClose: () => void;
-  instructorId?: string | null;
-}) {
-  const [instructors, setInstructors] = useState<Instructor[]>([]);
-  const [selectedInstructor, setSelectedInstructor] = useState<string>(""); // "" -> Unknown/Other
-  const [name, setName] = useState("");
-  const [rating, setRating] = useState<number>(5);
+  instructorId?: string | null; // omit or null for general review
+};
+
+const LOCATIONS = [
+  "Unknown / Other",
+  "Irvine – Barranca",
+  "Irvine – Culver",
+  "Irvine – Spectrum",
+  "Irvine – Harvard",
+  "Tustin – The Marketplace",
+  "Costa Mesa – Harbor",
+  "Newport Beach – Westcliff",
+];
+
+export default function AddReview({ open, onClose, instructorId = null }: Props) {
   const [title, setTitle] = useState("");
   const [comment, setComment] = useState("");
-
-  const [location, setLocation] = useState<string>("Unknown / Other");
-
+  const [rating, setRating] = useState<number>(5);
+  const [location, setLocation] = useState(LOCATIONS[0]);
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load instructors
+  // reset when opened/closed
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("instructors")
-        .select("id,name,slug")
-        .eq("approved", true)
-        .eq("visible", true)
-        .order("name", { ascending: true });
+    if (!open) return;
+    setTitle("");
+    setComment("");
+    setRating(5);
+    setLocation(LOCATIONS[0]);
+    setFile(null);
+    setBusy(false);
+    setMsg(null);
+    setErr(null);
+  }, [open]);
 
-      if (!cancelled) {
-        if (error) setErr(error.message);
-        else setInstructors(data || []);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Respect preselected instructor when opened from instructor page
-  useEffect(() => {
-    setSelectedInstructor(instructorId ?? "");
-  }, [instructorId]);
+  const canSubmit = useMemo(() => {
+    return rating >= 1 && rating <= 5 && (title.trim().length > 0 || comment.trim().length > 0);
+  }, [rating, title, comment]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,29 +54,45 @@ export default function AddReview({
     setMsg(null);
     setBusy(true);
     try {
-      const payload = {
-        instructor_id: selectedInstructor || null, // empty string -> NULL
-        name: name || null,
+      // must be signed in
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) throw new Error("Please sign in to leave a review.");
+
+      // optional upload
+      let image_url: string | null = null;
+      if (file) {
+        const safeName = file.name.replace(/\s+/g, "-");
+        const path = `reviews/${auth.user.id}/${Date.now()}-${safeName}`;
+        const { error: upErr } = await supabase.storage
+          .from("review-images")
+          .upload(path, file, { upsert: false, contentType: file.type || "image/jpeg" });
+        if (upErr) throw upErr;
+        const { data: url } = supabase.storage.from("review-images").getPublicUrl(path);
+        image_url = url.publicUrl;
+      }
+
+      // insert (trigger fills reviewer_user_id; defaults set status='pending', hidden=false)
+      const payload: any = {
+        instructor_id: instructorId ?? null,
+        title: title.trim() || null,
+        comment: comment.trim() || null,
         rating,
-        title: title || null,
-        comment: comment || null,
-        image_url: null,
-        location: location || null,
-        status: "pending" as const,
+        image_url,
+        location: location || null, // if you have this column in reviews; else remove
       };
 
-      const { error } = await supabase.from("reviews").insert(payload);
-      if (error) throw error;
+      const { error: insErr } = await supabase.from("reviews").insert(payload);
+      if (insErr) throw insErr;
 
       setMsg("Thanks! Your review was submitted and is pending approval.");
-      setName("");
-      setRating(5);
+      // quick reset but keep the modal open so user sees the message
       setTitle("");
       setComment("");
-      setLocation("Unknown / Other");
-      // keep selectedInstructor as-is
+      setRating(5);
+      setLocation(LOCATIONS[0]);
+      setFile(null);
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(e.message || String(e));
     } finally {
       setBusy(false);
     }
@@ -92,135 +101,127 @@ export default function AddReview({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40">
-      <div className="mx-auto mt-20 max-w-lg rounded-xl border bg-white p-4 shadow">
-        <div className="flex items-center justify-between">
+    <div
+      aria-modal
+      role="dialog"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border bg-white p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold">Leave a Review</h2>
-          <button
-            className="rounded border px-2 py-1 text-sm hover:bg-gray-50"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            ✕
+          <button className="rounded border px-2 py-1 text-sm hover:bg-gray-50" onClick={onClose}>
+            Close
           </button>
         </div>
 
-        <form onSubmit={onSubmit} className="mt-3 space-y-3">
-          {/* Instructor */}
-          <label className="block">
-            <div className="text-sm mb-1">Instructor</div>
+        {/* Context note */}
+        <p className="text-xs text-gray-600 mb-3">
+          {instructorId
+            ? "This review will be linked to the selected instructor."
+            : "This is a general review not tied to a specific instructor."}
+        </p>
+
+        {err && (
+          <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">
+            {err}
+          </div>
+        )}
+        {msg && (
+          <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">
+            {msg}
+          </div>
+        )}
+
+        <form onSubmit={onSubmit} className="space-y-3">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium">Rating</label>
             <select
-              value={selectedInstructor}
-              onChange={(e) => setSelectedInstructor(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              value={rating}
+              onChange={(e) => setRating(parseInt(e.target.value, 10))}
+              className="rounded border px-2 py-1 text-sm"
             >
-              <option value="">Unknown / Other</option>
-              {instructors.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name || "(Unnamed instructor)"} {i.slug ? `— ${i.slug}` : ""}
+              {[5, 4, 3, 2, 1].map((n) => (
+                <option key={n} value={n}>
+                  {n} {n === 1 ? "star" : "stars"}
                 </option>
               ))}
             </select>
-            <div className="mt-1 text-xs text-gray-500">
-              Not sure who taught? Keep “Unknown / Other.”
-            </div>
-          </label>
+          </div>
 
-          {/* Location */}
-          <label className="block">
-            <div className="text-sm mb-1">Location</div>
+          <div>
+            <label className="block text-sm font-medium">Title (optional)</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-1 w-full rounded border px-3 py-2"
+              placeholder="Great class!"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Comment</label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="mt-1 w-full rounded border px-3 py-2"
+              rows={4}
+              placeholder="What did you like? Anything to improve?"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Location (optional)</label>
             <select
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              className="w-full rounded border px-3 py-2"
+              className="mt-1 w-full rounded border px-3 py-2"
             >
-              {LAF_LOCATIONS.map((loc) => (
+              {LOCATIONS.map((loc) => (
                 <option key={loc} value={loc}>
                   {loc}
                 </option>
               ))}
             </select>
-            <div className="mt-1 text-xs text-gray-500">
-              Choose the LA Fitness club where class was taken.
-            </div>
-          </label>
+          </div>
 
-          {/* Name (optional) */}
-          <label className="block">
-            <div className="text-sm mb-1">Your name (optional)</div>
+          <div>
+            <label className="block text-sm font-medium">Photo (optional)</label>
             <input
-              className="w-full rounded border px-3 py-2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Jane D."
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="mt-1 block"
             />
-          </label>
+            {file && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt="preview"
+                src={URL.createObjectURL(file)}
+                className="mt-2 h-28 w-28 rounded object-cover border"
+                style={{ objectPosition: "center top" }}
+              />
+            )}
+          </div>
 
-          {/* Rating */}
-          <label className="block">
-            <div className="text-sm mb-1">Rating</div>
-            <select
-              className="w-full rounded border px-3 py-2"
-              value={rating}
-              onChange={(e) => setRating(Number(e.target.value))}
-              required
-            >
-              {[5, 4, 3, 2, 1].map((r) => (
-                <option key={r} value={r}>
-                  {r} / 5
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {/* Title */}
-          <label className="block">
-            <div className="text-sm mb-1">Title</div>
-            <input
-              className="w-full rounded border px-3 py-2"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Great class!"
-            />
-          </label>
-
-          {/* Comment */}
-          <label className="block">
-            <div className="text-sm mb-1">Comment</div>
-            <textarea
-              className="w-full rounded border px-3 py-2"
-              rows={4}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="What did you like? Any helpful context?"
-            />
-          </label>
-
-          {err && (
-            <div className="rounded border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
-              {err}
-            </div>
-          )}
-          {msg && (
-            <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
-              {msg}
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2">
+          <div className="pt-2 flex items-center justify-end gap-2">
             <button
               type="button"
+              className="rounded border px-4 py-2 text-sm hover:bg-gray-50"
               onClick={onClose}
-              className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={busy}
-              className="rounded bg-black px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-60"
+              disabled={!canSubmit || busy}
+              className="rounded bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {busy ? "Submitting…" : "Submit review"}
+              {busy ? "Submitting…" : "Submit"}
             </button>
           </div>
         </form>
