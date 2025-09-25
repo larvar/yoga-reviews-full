@@ -66,7 +66,7 @@ export default function HomePage() {
           overflow: "hidden",
           backgroundImage: 'url("/hero.jpg")',
           backgroundSize: "cover",
-          backgroundPosition: "center 30%", // a touch higher so heads stay in frame
+          backgroundPosition: "center 30%",
           backgroundRepeat: "no-repeat",
         }}
       >
@@ -85,10 +85,10 @@ export default function HomePage() {
             padding: "0 16px",
           }}
         >
-          {/* 🔥 Big white banner text */}
+          {/* Banner text */}
           <h1
             style={{
-              fontSize: 64,            // big banner
+              fontSize: 64,
               fontWeight: 800,
               margin: 0,
               letterSpacing: 0.5,
@@ -111,8 +111,18 @@ export default function HomePage() {
             Find and review yoga instructors across LA Fitness studios.
           </p>
 
-	<hr style={{ border: "1px solid #eee", marginTop: 24, marginBottom: 16 }} />
-          <div style={{ marginTop: 20, display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {/* Buttons — tighter, with subtle divider for mobile contrast */}
+          <div
+            style={{
+              marginTop: 6,                               // moves buttons up
+              paddingTop: 10,                             // small breathing room
+              borderTop: "1px solid rgba(255,255,255,0.35)", // subtle separation on phones
+              display: "flex",
+              gap: 14,
+              flexWrap: "wrap",
+              justifyContent: "center",
+            }}
+          >
             <Link
               href="/instructors"
               style={{
@@ -123,6 +133,7 @@ export default function HomePage() {
                 textDecoration: "none",
                 fontWeight: 600,
                 fontSize: 16,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.1)", // slight lift on white
               }}
             >
               Browse Instructors
@@ -148,11 +159,11 @@ export default function HomePage() {
 
       {/* FEATURED INSTRUCTORS */}
       <section
+        className="featuredCard"
         style={{
           maxWidth: 1120,
           margin: "0 auto",
           padding: "32px 16px",
-          marginTop: "-80px",
           background: "white",
           borderRadius: 16,
           position: "relative",
@@ -203,15 +214,15 @@ export default function HomePage() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-		      src={i.photo_url || "/review-placeholder.jpg"}
-		      style={{
-		        objectFit: i.photo_url ? "cover" : "contain",
-		        objectPosition: "center",           // <-- add this
-		        background: i.photo_url ? undefined : "#fff",
-		        padding: i.photo_url ? 0 : 8,
-		      }}
-		      className="w-full h-48 rounded"
-		/>
+                      src={i.photo_url || "/review-placeholder.jpg"}
+                      style={{
+                        objectFit: i.photo_url ? "cover" : "contain",
+                        objectPosition: "center", // ensure vertical centering
+                        background: i.photo_url ? undefined : "#fff",
+                        padding: i.photo_url ? 0 : 8,
+                      }}
+                      className="w-full h-48 rounded"
+                    />
                     <div style={{ fontWeight: 600 }}>{i.name || "(Unnamed instructor)"}</div>
                     <div style={{ fontSize: 12, color: "#6b7280" }}>{i.slug}</div>
                   </Link>
@@ -240,7 +251,13 @@ export default function HomePage() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: 16,
+          }}
+        >
           {reviews.map((r) => {
             const src = r.image_url || "/review-placeholder.jpg";
             const isPlaceholder = !r.image_url;
@@ -292,6 +309,18 @@ export default function HomePage() {
 
       {/* Modal (no instructorId) */}
       <AddReview open={showReview} onClose={() => setShowReview(false)} />
+
+      {/* Responsive tweak for featured card overlap */}
+      <style jsx>{`
+        .featuredCard {
+          margin-top: -80px;
+        }
+        @media (max-width: 640px) {
+          .featuredCard {
+            margin-top: -48px; /* less overlap on phones */
+          }
+        }
+      `}</style>
     </main>
   );
 }
