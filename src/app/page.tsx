@@ -111,6 +111,7 @@ export default function HomePage() {
             Find and review yoga instructors across LA Fitness studios.
           </p>
 
+	<hr style={{ border: "1px solid #eee", marginTop: 24, marginBottom: 16 }} />
           <div style={{ marginTop: 20, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <Link
               href="/instructors"
