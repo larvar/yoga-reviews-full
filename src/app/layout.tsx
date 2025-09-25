@@ -22,10 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/instructors" className="hover:underline">
                 Instructors
               </Link>
-              <Link href="/instructor/me" className="hover:underline">
-                My Profile
-              </Link>
-              <Link href="/admin/check" className="hover:underline">
+               <Link href="/admin/check" className="hover:underline">
                 Admin
               </Link>
               <Link href="/contact" className="hover:underline">

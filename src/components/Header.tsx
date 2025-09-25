@@ -57,9 +57,6 @@ export default function Header() {
 
         {userId && (
           <>
-            <Link href="/instructor/me" className="hover:underline">
-              My Profile
-            </Link>
             <button onClick={handleLogout} className="hover:underline">
               Log out
             </button>
