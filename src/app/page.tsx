@@ -202,20 +202,15 @@ export default function HomePage() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={i.photo_url || "/review-placeholder.jpg"}
-                      alt={i.name || "Instructor"}
-                      style={{
-                        width: "100%",
-                        height: 200,
-                        objectFit: i.photo_url ? "cover" : "contain",
-                        objectPosition: "center top",
-                        background: i.photo_url ? undefined : "#fff",
-                        padding: i.photo_url ? 0 : 8,
-                        borderRadius: 12,
-                        border: "1px solid #e5e7eb",
-                        marginBottom: 12,
-                      }}
-                    />
+		      src={i.photo_url || "/review-placeholder.jpg"}
+		      style={{
+		        objectFit: i.photo_url ? "cover" : "contain",
+		        objectPosition: "center",           // <-- add this
+		        background: i.photo_url ? undefined : "#fff",
+		        padding: i.photo_url ? 0 : 8,
+		      }}
+		      className="w-full h-48 rounded"
+		/>
                     <div style={{ fontWeight: 600 }}>{i.name || "(Unnamed instructor)"}</div>
                     <div style={{ fontSize: 12, color: "#6b7280" }}>{i.slug}</div>
                   </Link>
